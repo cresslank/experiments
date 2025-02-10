@@ -1,37 +1,41 @@
-# p5.js Visualizations Playground
+# some cool p5.js experiments?
 
-This repository contains various p5.js sketches and visualizations for creative coding experiments.
+🌀 *"code is not just a tool for creating art, but a medium of expression in its own right."* - casey reas?
 
-## Setup
+---
 
-1. Create a new sketch by creating an HTML file in the root directory
-2. Include p5.js in your HTML file:
-   ```html
-   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
-   ```
-3. Create your sketch file and link it in your HTML
+## what i am currently thinking about
 
-## Project Structure
+- 🏔️ generative landscapes _(emerging from noise)_
+- 🔲 cellular automata _(life finds a way)_
+- ❄️ fractals _(infinite regression therapy)_
+- 🤖 ai _(artistic intelligence?)_
 
-- Each visualization should have its own directory with:
-  - An HTML file
-  - A JavaScript file containing the p5.js sketch
-  - Any additional assets (images, sounds, etc.)
+---
 
-## Running Sketches
+## how to view
 
-Open the HTML file in your web browser to view the sketch. For development, you can use a local server to avoid CORS issues:
+each experiment lives in its own folder with an html file that you can open directly in your browser. if there are any dependencies, they will be in the folder with the experiment.
 
+using node:
 ```bash
-# Using Python 3
-python -m http.server
-
-# Using Node.js
-npx serve
+npx serve  # → local: http://localhost:3000 | network: http://your-ip:3000
 ```
 
-## Resources
+using python:
+```bash
+python -m http.server 8000  # classic approach (port 8000)
+```
 
-- [p5.js Reference](https://p5js.org/reference/)
-- [p5.js Examples](https://p5js.org/examples/)
-- [p5.js Web Editor](https://editor.p5js.org/) 
+---
+
+## inspiration links
+
+- [OpenProcessing](https://openprocessing.org/discover/#/trending)
+- [p5.js 2022 Showcase](https://showcase.p5js.org/#/2022-All)
+- [Dribbble](https://dribbble.com/search/p5js)
+- [Genuary](https://genuary.art)
+
+---
+
+💡 *experiment recklessly.*
