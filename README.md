@@ -35,7 +35,3 @@ python -m http.server 8000  # classic approach (port 8000)
 - [p5.js 2022 Showcase](https://showcase.p5js.org/#/2022-All)
 - [Dribbble](https://dribbble.com/search/p5js)
 - [Genuary](https://genuary.art)
-
----
-
-💡 *experiment recklessly.*
