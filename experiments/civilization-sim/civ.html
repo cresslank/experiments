@@ -26,18 +26,18 @@
     const BASE_INTRA_CLUSTER_DENSITY = 0.8;
     const BASE_INTER_CLUSTER_DENSITY = 0.2;
     const BASE_INTER_SUPER_DENSITY = 0.05;
-    const TRAIT_SIMILARITY_WEIGHT = 0.3; // How much trait similarity affects forces
-    const TRAIT_CLUSTERING_STRENGTH = 1.2; // Multiplier for trait-based clustering
+    const TRAIT_SIMILARITY_WEIGHT = 0.3;
+    const TRAIT_CLUSTERING_STRENGTH = 1.2;
 
     // Population cycle parameters
     const INITIAL_POPULATION = NUM_SUPERCLUSTERS * CLUSTERS_PER_SUPERCLUSTER * NODES_PER_CLUSTER;
-    const POPULATION_CYCLE_DURATION = 3000; // Frames for one complete cycle
-    const GROWTH_PHASE_DURATION = 2000;     // Frames for growth phase (slower growth)
-    const COLLAPSE_PHASE_DURATION = 1000;   // Frames for collapse phase (faster decline)
-    const MAX_POPULATION_MULTIPLIER = 1.5;  // Peak at 150% of initial population
-    const MIN_POPULATION_MULTIPLIER = 0.5;  // Bottom at 50% of initial population
-    let populationCycleStartFrame = 0;      // Track when the current cycle started
-    let isInGrowthPhase = true;            // Track which phase we're in
+    const POPULATION_CYCLE_DURATION = 3000;
+    const GROWTH_PHASE_DURATION = 2000;
+    const COLLAPSE_PHASE_DURATION = 1000;
+    const MAX_POPULATION_MULTIPLIER = 1.5;
+    const MIN_POPULATION_MULTIPLIER = 0.5;
+    let populationCycleStartFrame = 0;
+    let isInGrowthPhase = true;
 
     // Visual parameters
     const NODE_SIZE = 10;
@@ -48,52 +48,71 @@
     const CYCLE_VARIATION = 0.2;
 
     // Spatial partitioning parameters
-    const GRID_CELL_SIZE = 150; // Increased for larger interaction radius
-    const LOCAL_RADIUS = 200; // Radius for frequent local interactions
-    const GLOBAL_RADIUS = 500; // Radius for occasional global interactions
-    const GLOBAL_CHECK_FREQUENCY = 0.1; // Probability of checking global interactions
-    let spatialGrid = {}; // Grid cells containing nodes
+    const GRID_CELL_SIZE = 150;
+    const LOCAL_RADIUS = 200;
+    const GLOBAL_RADIUS = 500;
+    const GLOBAL_CHECK_FREQUENCY = 0.1;
+    let spatialGrid = [];
+    let gridWidth = 0;
+    let gridHeight = 0;
     
     // Network data structures
     let nodes = [];
     let edges = [];
+    let edgeMap = new Map();
     let startTime;
     let dynamicEdges = new Set();
     let startupPhase = 1.0;
-    let globalInteractionTimer = 0; // Timer for periodic global interactions
+    let globalInteractionTimer = 0;
 
-    // Helper function to get grid cell key
-    function getGridKey(x, y) {
-      const gridX = Math.floor(x / GRID_CELL_SIZE);
-      const gridY = Math.floor(y / GRID_CELL_SIZE);
-      return `${gridX},${gridY}`;
+    // Helper function to get grid cell indices
+    function getGridIndices(x, y) {
+      return {
+        x: Math.floor(x / GRID_CELL_SIZE),
+        y: Math.floor(y / GRID_CELL_SIZE)
+      };
     }
 
     // Update spatial grid
     function updateSpatialGrid() {
-      spatialGrid = {};
-      for (let node of nodes) {
-        const key = getGridKey(node.x, node.y);
-        if (!spatialGrid[key]) {
-          spatialGrid[key] = [];
+      // Calculate grid dimensions
+      gridWidth = Math.ceil(width / GRID_CELL_SIZE);
+      gridHeight = Math.ceil(height / GRID_CELL_SIZE);
+      
+      // Reset grid with pre-allocated arrays
+      spatialGrid = new Array(gridWidth);
+      for (let x = 0; x < gridWidth; x++) {
+        spatialGrid[x] = new Array(gridHeight);
+        for (let y = 0; y < gridHeight; y++) {
+          spatialGrid[x][y] = [];
         }
-        spatialGrid[key].push(node);
+      }
+      
+      // Add nodes to grid
+      for (let node of nodes) {
+        const indices = getGridIndices(node.x, node.y);
+        if (indices.x >= 0 && indices.x < gridWidth && 
+            indices.y >= 0 && indices.y < gridHeight) {
+          spatialGrid[indices.x][indices.y].push(node);
+        }
       }
     }
 
-    // Get nearby nodes using grid with dynamic radius
+    // Get nearby nodes using optimized grid lookup
     function getNearbyNodes(node, radius, includeGlobal = false) {
       const nearby = new Set();
+      const indices = getGridIndices(node.x, node.y);
       const gridRadius = Math.ceil(radius / GRID_CELL_SIZE);
-      const baseX = Math.floor(node.x / GRID_CELL_SIZE);
-      const baseY = Math.floor(node.y / GRID_CELL_SIZE);
-
-      // Always check local radius
+      
+      // Check cells within radius
       for (let dx = -gridRadius; dx <= gridRadius; dx++) {
         for (let dy = -gridRadius; dy <= gridRadius; dy++) {
-          const key = `${baseX + dx},${baseY + dy}`;
-          if (spatialGrid[key]) {
-            for (let other of spatialGrid[key]) {
+          const gx = indices.x + dx;
+          const gy = indices.y + dy;
+          
+          if (gx >= 0 && gx < gridWidth && gy >= 0 && gy < gridHeight) {
+            const cell = spatialGrid[gx][gy];
+            for (let other of cell) {
               if (other !== node) {
                 const dx = other.x - node.x;
                 const dy = other.y - node.y;
@@ -150,20 +169,17 @@
       const target = getPopulationTarget();
       const currentPop = nodes.length;
       
-      // Adjust reproduction and death rates based on population pressure
       for (let node of nodes) {
         if (currentPop > target) {
-          // Increase death probability and reduce reproduction when over target
           const overpopulation = (currentPop - target) / target;
-          node.lifespan *= (1 - overpopulation * 0.1);  // Shorter lifespan
-          node.reproductiveEnergy = 0.7 + overpopulation * 0.2;  // Harder to reproduce
-          node.resources *= (1 - overpopulation * 0.01);  // Faster resource depletion
+          node.lifespan *= (1 - overpopulation * 0.1);
+          node.reproductiveEnergy = 0.7 + overpopulation * 0.2;
+          node.resources *= (1 - overpopulation * 0.01);
         } else {
-          // Decrease death probability and increase reproduction when under target
           const underpopulation = (target - currentPop) / target;
-          node.lifespan *= (1 + underpopulation * 0.1);  // Longer lifespan
-          node.reproductiveEnergy = max(0.4, 0.7 - underpopulation * 0.3);  // Easier to reproduce
-          node.resources *= (1 + underpopulation * 0.01);  // Slower resource depletion
+          node.lifespan *= (1 + underpopulation * 0.1);
+          node.reproductiveEnergy = max(0.4, 0.7 - underpopulation * 0.3);
+          node.resources *= (1 + underpopulation * 0.01);
         }
       }
     }
@@ -173,11 +189,11 @@
       let totalTraits = 0;
       
       for (let trait in node1.traits) {
-        similarity += 1 - Math.abs(node1.traits[trait] - node2.traits[trait]) / 0.4; // 0.4 is max trait difference
+        similarity += 1 - Math.abs(node1.traits[trait] - node2.traits[trait]) / 0.4;
         totalTraits++;
       }
       
-      return similarity / totalTraits; // Returns value between 0 and 1
+      return similarity / totalTraits;
     }
 
     class Node {
@@ -196,7 +212,6 @@
         this.memory = [];
         this.age = 0;
         
-        // Modified properties for population dynamics
         this.baseLifespan = random(500, 1500);
         this.lifespan = this.baseLifespan;
         this.reproductiveEnergy = 0.7;
@@ -253,30 +268,28 @@
       constructor(source, target, type) {
         this.source = source;
         this.target = target;
-        this.type = type; // 'intra', 'inter', or 'super'
+        this.type = type;
         this.strength = 1;
-        this.age = 0; // Track how long the edge has existed
-        this.birth = millis(); // When the edge was created
-        this.shouldGlow = random() < 0.05; // Only 5% of edges will show glow effect
-        this.shouldRender = type === 'intra' || random() < 0.2; // Only render 20% of non-intra edges
+        this.age = 0;
+        this.birth = millis();
+        this.shouldGlow = random() < 0.05;
+        this.shouldRender = type === 'intra' || random() < 0.2;
+        this.id = `${Math.min(source.id, target.id)}-${Math.max(source.id, target.id)}`;
       }
 
       getColor() {
-        // Define base colors for different node states with 70% opacity
-        const activeColor = color(50, 50, 255, 180);   // Blue for active (was 255)
-        const dormantColor = color(255, 50, 50, 180);  // Red for dormant (was 255)
+        const activeColor = color(170, 170, 190, 180);
+        const dormantColor = color(190, 170, 170, 180);
         
-        // Get states of connected nodes
         const sourceActive = this.source.state === 'active' || this.source.state === 'transitioning';
         const targetActive = this.target.state === 'active' || this.target.state === 'transitioning';
         
         if (sourceActive && targetActive) {
-          return activeColor;  // Both active = blue
+          return activeColor;
         } else if (!sourceActive && !targetActive) {
-          return dormantColor; // Both dormant = red
+          return dormantColor;
         } else {
-          // Mixed states = purple (blend of red and blue) with 70% opacity
-          return color(152, 50, 152, 180);
+          return color(180, 170, 180, 180);
         }
       }
     }
@@ -293,34 +306,51 @@
       createCanvas(windowWidth, windowHeight);
       startTime = millis();
       
-      // Create nodes with hierarchical clustering and organized initial positions
+      // Create nodes with spread out initial positions
       let nodeId = 0;
       const centerX = width / 2;
       const centerY = height / 2;
       
       for (let s = 0; s < NUM_SUPERCLUSTERS; s++) {
-        // Position superclusters in a circle around the center
-        const superAngle = (s * TWO_PI / NUM_SUPERCLUSTERS);
-        const superRadius = min(width, height) * 0.3; // Supercluster radius from center
+        // Position superclusters in a loose arrangement around the center
+        const superAngle = (s * TWO_PI / NUM_SUPERCLUSTERS) + random(-0.3, 0.3);
+        const superRadius = min(width, height) * random(0.3, 0.4); // Larger initial radius
         const superX = centerX + cos(superAngle) * superRadius;
         const superY = centerY + sin(superAngle) * superRadius;
         
         for (let c = 0; c < CLUSTERS_PER_SUPERCLUSTER; c++) {
-          // Position clusters in smaller circles within their supercluster
-          const clusterAngle = superAngle + (c * TWO_PI / CLUSTERS_PER_SUPERCLUSTER) * 0.5;
-          const clusterRadius = min(width, height) * 0.15; // Cluster radius from supercluster center
+          // Create spread out cluster positions
+          const clusterAngle = superAngle + (c * TWO_PI / CLUSTERS_PER_SUPERCLUSTER) + random(-0.4, 0.4);
+          const clusterRadius = min(width, height) * random(0.15, 0.25); // Larger cluster radius
           const clusterX = superX + cos(clusterAngle) * clusterRadius;
           const clusterY = superY + sin(clusterAngle) * clusterRadius;
           
+          // Create a cluster center with larger random offset
+          const clusterCenterX = clusterX + random(-40, 40);
+          const clusterCenterY = clusterY + random(-40, 40);
+          
           for (let n = 0; n < NODES_PER_CLUSTER; n++) {
-            // Position nodes in small circles within their cluster
-            const nodeAngle = clusterAngle + (n * TWO_PI / NODES_PER_CLUSTER) * 0.5;
-            const nodeRadius = min(width, height) * 0.05; // Node radius from cluster center
             const node = new Node(nodeId++, c, s);
-            node.x = clusterX + cos(nodeAngle) * nodeRadius;
-            node.y = clusterY + sin(nodeAngle) * nodeRadius;
-            node.targetX = node.x; // Set initial target to current position
-            node.targetY = node.y;
+            
+            // Position nodes with wider distribution around cluster center
+            const angle = random(TWO_PI);
+            const distance = random(30, 80) * (1 + random(-0.4, 0.4));
+            node.x = clusterCenterX + cos(angle) * distance;
+            node.y = clusterCenterY + sin(angle) * distance;
+            
+            // Set initial target with wider drift
+            node.targetX = node.x + random(-50, 50);
+            node.targetY = node.y + random(-50, 50);
+            
+            // Completely randomize states and traits
+            node.state = random(['active', 'dormant', 'transitioning']);
+            node.traits = {
+              efficiency: random(0.8, 1.2),
+              adaptability: random(0.8, 1.2),
+              cooperation: random(0.8, 1.2),
+              aggression: random(0.8, 1.2)
+            };
+            
             nodes.push(node);
           }
         }
@@ -337,23 +367,16 @@
     }
 
     function updateEdges() {
-      // Update edges less frequently
       if (frameCount % 180 !== 0) return;
 
-      // Randomly adjust cycle durations within bounds
-      currentCycleDuration = BASE_CYCLE_DURATION * (1 + (random(-CYCLE_VARIATION, CYCLE_VARIATION)));
-      currentSubcycleDuration = BASE_SUBCYCLE_DURATION * (1 + (random(-CYCLE_VARIATION, CYCLE_VARIATION)));
-      
+      edgeMap.clear();
       const newEdges = [];
       
-      // Update spatial grid for proximity checks
       updateSpatialGrid();
       
-      // Increment global interaction timer
       globalInteractionTimer++;
       const isGlobalInteractionFrame = globalInteractionTimer % 5 === 0;
       
-      // Check edges between nodes
       for (let node of nodes) {
         const nearbyNodes = getNearbyNodes(node, LOCAL_RADIUS, isGlobalInteractionFrame);
         
@@ -374,16 +397,13 @@
               type = 'super';
             }
             
-            // Boost probability based on trait similarity
             const traitSimilarity = getTraitSimilarity(node, other);
             probability *= 1 + (traitSimilarity * TRAIT_CLUSTERING_STRENGTH);
             
-            // Boost probability for global interactions
             if (dist(node.x, node.y, other.x, other.y) > LOCAL_RADIUS) {
               probability *= 1.5;
             }
             
-            // State-based probability adjustments
             if (node.state === 'active' && other.state === 'active') {
               probability *= 1.5;
             } else if (node.state === 'dormant' || other.state === 'dormant') {
@@ -401,14 +421,16 @@
             probability += variation;
             
             if (random() < probability) {
-              const edgeKey = `${node.id}-${other.id}`;
-              const existingEdge = edges.find(e => `${e.source.id}-${e.target.id}` === edgeKey);
+              const edgeId = `${node.id}-${other.id}`;
+              const existingEdge = edgeMap.get(edgeId);
               
               if (existingEdge) {
                 existingEdge.age++;
                 newEdges.push(existingEdge);
               } else {
-                newEdges.push(new Edge(node, other, type));
+                const newEdge = new Edge(node, other, type);
+                edgeMap.set(edgeId, newEdge);
+                newEdges.push(newEdge);
               }
             }
           }
@@ -441,124 +463,114 @@
     function draw() {
       background(255);
       
-      // Update startup phase
       if (startupPhase > 0) {
         startupPhase = max(0, startupPhase - 0.005);
       }
       
-      // Periodically update edge structure
       if (frameCount % 180 === 0) {
         updateEdges();
       }
       
-      // Get current parameters based on oscillation
       const params = getOscillatingParameters();
       
-      // Apply forces and update positions with startup phase scaling
       updateForces(params);
       
-      // Draw edges with effects
       strokeWeight(1);
       for (let edge of edges) {
-        // Skip rendering if this is a non-intra edge that wasn't selected for rendering
         if (!edge.shouldRender) continue;
 
-        // Draw normal edge with potential glow for new edges
         const age = millis() - edge.birth;
-        const isNew = age < 1000; // Glow for 1 second
+        const isNew = age < 1000;
         
-        // Get edge color based on connected nodes' states
         const edgeColor = edge.getColor();
         
         if (isNew && edge.shouldGlow) {
-          // Draw glow using the edge color but with lower opacity
           strokeWeight(3);
-          const glowColor = color(red(edgeColor), green(edgeColor), blue(edgeColor), 35); // Was 50
+          const glowColor = color(
+            min(255, red(edgeColor) + 30),
+            min(255, green(edgeColor) + 30),
+            min(255, blue(edgeColor) + 40),
+            60
+          );
           stroke(glowColor);
           line(edge.source.x, edge.source.y, edge.target.x, edge.target.y);
           
-          // Draw stronger inner glow
           strokeWeight(2);
-          const innerGlowColor = color(red(edgeColor), green(edgeColor), blue(edgeColor), 70); // Was 100
+          const innerGlowColor = color(
+            min(255, red(edgeColor) + 40),
+            min(255, green(edgeColor) + 40),
+            min(255, blue(edgeColor) + 50),
+            100
+          );
           stroke(innerGlowColor);
           line(edge.source.x, edge.source.y, edge.target.x, edge.target.y);
         }
         
-        // Draw base edge
         strokeWeight(1);
         stroke(edgeColor);
         line(edge.source.x, edge.source.y, edge.target.x, edge.target.y);
       }
       
-      // Draw nodes with dynamic colors
       noStroke();
       for (let node of nodes) {
         const x = node.x;
         const y = node.y;
         
-        const pixelSize = 8; // Size for both pixels
+        const pixelSize = 8;
         const dominantTrait = Object.entries(node.traits)
           .reduce((a, b) => a[1] > b[1] ? a : b)[0];
         
-        // Determine corner position based on dominant trait
         let cornerOffset;
         switch(dominantTrait) {
           case 'efficiency':
-            cornerOffset = {x: -1, y: -1}; // Top-left
+            cornerOffset = {x: -1, y: -1};
             break;
           case 'adaptability':
-            cornerOffset = {x: 1, y: -1}; // Top-right
+            cornerOffset = {x: 1, y: -1};
             break;
           case 'cooperation':
-            cornerOffset = {x: -1, y: 1}; // Bottom-left
+            cornerOffset = {x: -1, y: 1};
             break;
           case 'aggression':
-            cornerOffset = {x: 1, y: 1}; // Bottom-right
+            cornerOffset = {x: 1, y: 1};
             break;
         }
         
-        // Determine if colored pixel should be above or below based on energy
         const coloredPixelOnTop = node.energy > 0.5;
         
-        // Calculate positions
-        const coloredX = x + (cornerOffset.x * pixelSize * 0.4); // More overlap (was 0.7)
+        const coloredX = x + (cornerOffset.x * pixelSize * 0.4);
         const coloredY = y + (cornerOffset.y * pixelSize * 0.4);
         
-        // Draw pixels in correct order based on layering
         if (!coloredPixelOnTop) {
-          // Draw colored pixel first (will be partially covered)
           switch(node.state) {
             case 'active':
             case 'transitioning':
-              fill(50, 50, 255); // Bright blue
+              fill(170, 170, 190);
               break;
             case 'dormant':
-              fill(255, 50, 50); // Bright red
+              fill(190, 170, 170);
               break;
           }
           rect(coloredX - pixelSize/2, coloredY - pixelSize/2, pixelSize, pixelSize);
         }
         
-        // Draw black center pixel
-        fill(0, map(node.resources, 0, 1, 180, 255));
+        fill(160, map(node.resources, 0, 1, 180, 200));
         rect(x - pixelSize/2, y - pixelSize/2, pixelSize, pixelSize);
         
         if (coloredPixelOnTop) {
-          // Draw colored pixel last (will overlap black)
           switch(node.state) {
             case 'active':
             case 'transitioning':
-              fill(50, 50, 255); // Bright blue
+              fill(170, 170, 190);
               break;
             case 'dormant':
-              fill(255, 50, 50); // Bright red
+              fill(190, 170, 170);
               break;
           }
           rect(coloredX - pixelSize/2, coloredY - pixelSize/2, pixelSize, pixelSize);
         }
       }
 
-      // Mouse interaction
       for (let node of nodes) {
         const d = dist(node.x, node.y, mouseX, mouseY);
         if (d < 100) {
@@ -571,113 +583,99 @@
     }
 
     function updateForces(params) {
-      // Reset velocities
-      for (let node of nodes) {
-        node.vx = 0;
-        node.vy = 0;
-      }
+      const forceScale = 1 - (startupPhase * 0.9);
+      const velocities = new Float32Array(nodes.length * 2);
       
-      // Update spatial grid
       updateSpatialGrid();
       
-      const forceScale = 1 - (startupPhase * 0.9);
-      
-      // Apply spring forces with energy transfer
       for (let edge of edges) {
-        let dx = edge.target.x - edge.source.x;
-        let dy = edge.target.y - edge.source.y;
-        let distance = sqrt(dx * dx + dy * dy);
+        const dx = edge.target.x - edge.source.x;
+        const dy = edge.target.y - edge.source.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
         
         if (distance > 0) {
-          // Adjust spring length based on trait similarity
           const traitSimilarity = getTraitSimilarity(edge.source, edge.target);
           const similarityFactor = 1 - (traitSimilarity * TRAIT_SIMILARITY_WEIGHT);
           
           const springLength = params.springLength[edge.type] * 
-                             similarityFactor * // Similar traits = shorter preferred distance
-                             (1 + sin(edge.source.energy * PI) * 0.2);
+                             similarityFactor * 
+                             (1 + Math.sin(edge.source.energy * Math.PI) * 0.2);
           
           const springStrength = params.springStrength[edge.type] * 
-                               (1 + traitSimilarity * TRAIT_SIMILARITY_WEIGHT) * // Similar traits = stronger attraction
+                               (1 + traitSimilarity * TRAIT_SIMILARITY_WEIGHT) * 
                                ((edge.source.state === 'active' && edge.target.state === 'active') ? 1.2 : 1) *
                                forceScale;
           
-          let force = springStrength * (distance - springLength);
+          const force = springStrength * (distance - springLength);
+          const fx = (force * dx) / distance;
+          const fy = (force * dy) / distance;
           
-          // Energy transfer along edges
+          const sourceIndex = edge.source.id * 2;
+          const targetIndex = edge.target.id * 2;
+          
+          velocities[sourceIndex] += fx;
+          velocities[sourceIndex + 1] += fy;
+          velocities[targetIndex] -= fx;
+          velocities[targetIndex + 1] -= fy;
+          
           const energyDiff = edge.source.energy - edge.target.energy;
           edge.source.energy -= energyDiff * 0.005;
           edge.target.energy += energyDiff * 0.005;
-          
-          // Apply forces
-          let fx = (force * dx) / distance;
-          let fy = (force * dy) / distance;
-          
-          edge.source.vx += fx;
-          edge.source.vy += fy;
-          edge.target.vx -= fx;
-          edge.target.vy -= fy;
         }
       }
       
-      // Apply repulsion with trait-based modifications
-      for (let node of nodes) {
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        const vIndex = i * 2;
         const nearbyNodes = getNearbyNodes(node, LOCAL_RADIUS, random() < 0.1);
         
         for (let other of nearbyNodes) {
           if (node !== other) {
-            let dx = other.x - node.x;
-            let dy = other.y - node.y;
-            let distSq = dx * dx + dy * dy;
+            const dx = other.x - node.x;
+            const dy = other.y - node.y;
+            const distSq = dx * dx + dy * dy;
             
             if (distSq > 0) {
               let repulsion = params.repulsionStrength;
-              
-              // Modify repulsion based on trait similarity
               const traitSimilarity = getTraitSimilarity(node, other);
-              repulsion *= (1 - traitSimilarity * TRAIT_SIMILARITY_WEIGHT); // Similar traits = less repulsion
+              repulsion *= (1 - traitSimilarity * TRAIT_SIMILARITY_WEIGHT);
               
               if (node.supercluster !== other.supercluster) {
                 repulsion *= 1.2;
               }
               
-              // Add slight random variation to repulsion
               repulsion *= (1 + random(-0.1, 0.1));
+              const force = repulsion / distSq;
               
-              let force = repulsion / distSq;
-              let fx = (force * dx);
-              let fy = (force * dy);
-              
-              node.vx -= fx * 0.5;
-              node.vy -= fy * 0.5;
+              velocities[vIndex] -= (force * dx) * 0.5;
+              velocities[vIndex + 1] -= (force * dy) * 0.5;
             }
           }
         }
-      }
-      
-      // Add slight random movement to prevent stagnation
-      for (let node of nodes) {
+        
         if (random() < 0.1) {
           const randomForce = random(0.5, 2);
           const randomAngle = random(TWO_PI);
-          node.vx += cos(randomAngle) * randomForce;
-          node.vy += sin(randomAngle) * randomForce;
+          velocities[vIndex] += Math.cos(randomAngle) * randomForce;
+          velocities[vIndex + 1] += Math.sin(randomAngle) * randomForce;
         }
       }
       
-      // Update positions with velocity damping
       const damping = 0.02;
-      for (let node of nodes) {
-        node.x += node.vx * damping;
-        node.y += node.vy * damping;
+      const margin = 50;
+      const boundaryForce = 0.05;
+      
+      for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
+        const vIndex = i * 2;
         
-        // Keep nodes within canvas bounds with smoother boundary forces
-        const margin = 50;
-        const boundaryForce = 0.05;
-        if (node.x < margin) node.vx += (margin - node.x) * boundaryForce;
-        if (node.x > width - margin) node.vx -= (node.x - (width - margin)) * boundaryForce;
-        if (node.y < margin) node.vy += (margin - node.y) * boundaryForce;
-        if (node.y > height - margin) node.vy -= (node.y - (height - margin)) * boundaryForce;
+        node.x += velocities[vIndex] * damping;
+        node.y += velocities[vIndex + 1] * damping;
+        
+        if (node.x < margin) velocities[vIndex] += (margin - node.x) * boundaryForce;
+        if (node.x > width - margin) velocities[vIndex] -= (node.x - (width - margin)) * boundaryForce;
+        if (node.y < margin) velocities[vIndex + 1] += (margin - node.y) * boundaryForce;
+        if (node.y > height - margin) velocities[vIndex + 1] -= (node.y - (height - margin)) * boundaryForce;
       }
     }
 
