@@ -20,17 +20,28 @@
 <body>
   <script>
     // Network parameters
-    const NUM_SUPERCLUSTERS = 4;
-    const CLUSTERS_PER_SUPERCLUSTER = 3;
+    const MIN_CLUSTERS = 2;
+    const MAX_CLUSTERS = 6;
+    const MEAN_CLUSTERS = 4;
+    const CLUSTER_STD_DEV = 1;
     const NODES_PER_CLUSTER = 8;
-    const BASE_INTRA_CLUSTER_DENSITY = 0.8;
-    const BASE_INTER_CLUSTER_DENSITY = 0.2;
-    const BASE_INTER_SUPER_DENSITY = 0.05;
+    const BASE_INTRA_CLUSTER_DENSITY = 0.9;
+    const BASE_INTER_CLUSTER_DENSITY = 0.3;
+    const BASE_INTER_SUPER_DENSITY = 0.1;
     const TRAIT_SIMILARITY_WEIGHT = 0.3;
     const TRAIT_CLUSTERING_STRENGTH = 1.2;
 
+    // Add gaussian random function
+    function gaussianRandom(mean, stdDev) {
+      let u = 0, v = 0;
+      while(u === 0) u = random(); // Converting [0,1) to (0,1)
+      while(v === 0) v = random();
+      const num = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+      return num * stdDev + mean;
+    }
+
     // Population cycle parameters
-    const INITIAL_POPULATION = NUM_SUPERCLUSTERS * CLUSTERS_PER_SUPERCLUSTER * NODES_PER_CLUSTER;
+    let INITIAL_POPULATION = 0; // Will be calculated after cluster generation
     const POPULATION_CYCLE_DURATION = 3000;
     const GROWTH_PHASE_DURATION = 2000;
     const COLLAPSE_PHASE_DURATION = 1000;
@@ -41,6 +52,7 @@
 
     // Visual parameters
     const NODE_SIZE = 10;
+    const MIN_NODE_DISTANCE = 40; // Added minimum distance between nodes
     const BASE_CYCLE_DURATION = 60000;
     const BASE_SUBCYCLE_DURATION = 20000;
     let currentCycleDuration = BASE_CYCLE_DURATION;
@@ -64,6 +76,208 @@
     let dynamicEdges = new Set();
     let startupPhase = 1.0;
     let globalInteractionTimer = 0;
+
+    const INITIAL_CLUSTERS = 8; // Start with many small clusters
+    let clusters = []; // Array of cluster objects
+
+    class Cluster {
+      constructor(id) {
+        this.id = id;
+        this.nodes = new Set();
+        this.traits = {
+          efficiency: 0,
+          adaptability: 0,
+          cooperation: 0,
+          aggression: 0,
+          innovation: 0,
+          resilience: 0
+        };
+        this.position = createVector();
+        this.color = color(random(255), random(255), random(255));
+        
+        // Cluster specialization
+        this.specialization = {
+          production: random(0.3, 0.7),
+          storage: random(0.3, 0.7),
+          distribution: random(0.3, 0.7),
+          research: random(0.3, 0.7)
+        };
+        
+        // Cluster behavior and state
+        this.dominantBehavior = 'generalist';
+        this.phase = 'stable';
+        this.stability = random(0.7, 1.0);
+        this.cohesion = random(0.6, 0.9);
+        this.influence = random(0.4, 0.8);
+        
+        // Resource management
+        this.sharedResources = 0;
+        this.resourceCapacity = random(5, 10);
+        this.resourceDistributionEfficiency = random(0.7, 0.9);
+        
+        // Inter-cluster relationships
+        this.allies = new Set();
+        this.rivals = new Set();
+        this.tradePartners = new Map(); // Maps cluster IDs to trade strength
+        
+        // Cultural memory
+        this.culturalTraits = new Map();
+        this.innovationHistory = [];
+        this.age = 0;
+      }
+      
+      updateTraits() {
+        // Reset traits
+        for (let trait in this.traits) {
+          this.traits[trait] = 0;
+        }
+        
+        // Calculate average traits from member nodes
+        let totalNodes = this.nodes.size;
+        if (totalNodes === 0) return;
+        
+        this.nodes.forEach(nodeId => {
+          const node = nodes.find(n => n.id === nodeId);
+          if (node) {
+            for (let trait in this.traits) {
+              this.traits[trait] += node.traits[trait];
+            }
+          }
+        });
+        
+        // Average the traits
+        for (let trait in this.traits) {
+          this.traits[trait] /= totalNodes;
+        }
+        
+        // Update specialization based on traits
+        this.updateSpecialization();
+      }
+      
+      updateSpecialization() {
+        // Update specializations based on traits and current state
+        this.specialization.production = lerp(
+          this.specialization.production,
+          (this.traits.efficiency * 0.6 + this.traits.cooperation * 0.4),
+          0.1
+        );
+        
+        this.specialization.storage = lerp(
+          this.specialization.storage,
+          (this.traits.resilience * 0.5 + this.traits.efficiency * 0.5),
+          0.1
+        );
+        
+        this.specialization.distribution = lerp(
+          this.specialization.distribution,
+          (this.traits.cooperation * 0.7 + this.traits.adaptability * 0.3),
+          0.1
+        );
+        
+        this.specialization.research = lerp(
+          this.specialization.research,
+          (this.traits.innovation * 0.8 + this.traits.adaptability * 0.2),
+          0.1
+        );
+        
+        // Determine dominant behavior
+        const specs = Object.entries(this.specialization);
+        specs.sort((a, b) => b[1] - a[1]);
+        
+        if (specs[0][1] > specs[1][1] * 1.5) {
+          this.dominantBehavior = specs[0][0];
+        } else {
+          this.dominantBehavior = 'generalist';
+        }
+      }
+      
+      updateState() {
+        this.age++;
+        
+        // Update stability based on member cohesion
+        let totalCohesion = 0;
+        let connections = 0;
+        
+        this.nodes.forEach(nodeId => {
+          const node = nodes.find(n => n.id === nodeId);
+          if (node) {
+            this.nodes.forEach(otherId => {
+              if (nodeId !== otherId) {
+                const other = nodes.find(n => n.id === otherId);
+                if (other) {
+                  const memory = node.socialMemory.get(otherId);
+                  if (memory) {
+                    totalCohesion += memory.strength;
+                    connections++;
+                  }
+                }
+              }
+            });
+          }
+        });
+        
+        if (connections > 0) {
+          this.cohesion = lerp(this.cohesion, totalCohesion / connections, 0.1);
+        }
+        
+        // Update phase based on stability and cohesion
+        if (this.cohesion < 0.3) {
+          this.phase = 'fragmenting';
+        } else if (this.stability < 0.4) {
+          this.phase = 'unstable';
+        } else if (this.cohesion > 0.8 && this.stability > 0.8) {
+          this.phase = 'flourishing';
+        } else {
+          this.phase = 'stable';
+        }
+        
+        // Resource management
+        this.sharedResources *= 0.99; // Natural decay
+        this.nodes.forEach(nodeId => {
+          const node = nodes.find(n => n.id === nodeId);
+          if (node) {
+            // Contribute to shared resources
+            const contribution = node.resources * 0.1 * this.traits.cooperation;
+            node.resources -= contribution;
+            this.sharedResources += contribution * this.resourceDistributionEfficiency;
+          }
+        });
+        
+        // Distribute resources if needed
+        if (this.sharedResources > this.resourceCapacity * 0.8) {
+          this.distributeResources();
+        }
+      }
+      
+      distributeResources() {
+        const resourcesPerNode = (this.sharedResources * 0.5) / this.nodes.size;
+        this.nodes.forEach(nodeId => {
+          const node = nodes.find(n => n.id === nodeId);
+          if (node) {
+            node.resources += resourcesPerNode * this.resourceDistributionEfficiency;
+          }
+        });
+        this.sharedResources *= 0.5;
+      }
+      
+      shouldSplit() {
+        return this.phase === 'fragmenting' && this.nodes.size > 5;
+      }
+      
+      canMerge(other) {
+        if (!other) return false;
+        
+        const traitCompatibility = Object.keys(this.traits).reduce((sum, trait) => {
+          return sum + Math.abs(this.traits[trait] - other.traits[trait]);
+        }, 0) / Object.keys(this.traits).length;
+        
+        return this.phase === 'stable' && 
+               other.phase === 'stable' && 
+               traitCompatibility < 0.3 &&
+               this.cohesion > 0.6 && 
+               other.cohesion > 0.6;
+      }
+    }
 
     // Helper function to get grid cell indices
     function getGridIndices(x, y) {
@@ -209,8 +423,38 @@
         this.targetY = random(height);
         this.energy = random(0, 1);
         this.state = random(['active', 'dormant', 'transitioning']);
-        this.memory = [];
+        
+        // Enhanced memory system
+        this.socialMemory = new Map(); // Store interaction history with other nodes
+        this.traitMemory = []; // Remember past trait values
+        this.behaviorPatterns = {
+          cooperative: random(0.3, 0.7),
+          competitive: random(0.3, 0.7),
+          innovative: random(0.3, 0.7)
+        };
+        
+        // Resource management
+        this.resourceBuffer = [];
+        this.resourceDemand = random(0.3, 0.7);
+        this.resourceSurplus = 0;
+        this.resourceDeficit = 0;
+        
+        // Social network properties
+        this.connectionStrengths = new Map();
+        this.preferredPartners = new Set();
+        this.rivalries = new Set();
+        this.influence = random(0.3, 0.7);
+        
         this.age = 0;
+        this.generation = 0;
+        
+        // Normal distribution with mean=3, stdDev=1, clamped to range [1,5]
+        this.maxConnections = constrain(round(gaussianRandom(3, 1)), 1, 5);
+        this.currentConnections = 0;
+        this.magneticPolarity = random([-1, 1]); // -1 repels, 1 attracts
+        this.magneticStrength = random(0.5, 2.0);
+        this.personalSpace = random(30, 100);
+        this.socialRange = random(100, 300);
         
         this.baseLifespan = random(500, 1500);
         this.lifespan = this.baseLifespan;
@@ -219,48 +463,157 @@
           efficiency: random(0.8, 1.2),
           adaptability: random(0.8, 1.2),
           cooperation: random(0.8, 1.2),
-          aggression: random(0.8, 1.2)
+          aggression: random(0.8, 1.2),
+          innovation: random(0.8, 1.2), // New trait
+          resilience: random(0.8, 1.2)  // New trait
         };
         this.resources = random(0.3, 0.7);
         this.lastReproduction = 0;
         this.reproductiveCooldown = 200;
+        
+        // Behavioral state
+        this.mood = random(0, 1);
+        this.stress = 0;
+        this.adaptationRate = random(0.05, 0.15);
       }
 
-      // Modified reproduction method
+      updateBehavior() {
+        // Update mood based on resources and connections
+        this.mood = lerp(this.mood, 
+          (this.energy * 0.3 + this.resources * 0.3 + 
+           (this.currentConnections / this.maxConnections) * 0.4),
+          0.1
+        );
+        
+        // Update stress based on environmental factors
+        const resourceStress = 1 - this.resources;
+        const socialStress = max(0, (this.currentConnections - this.maxConnections) / this.maxConnections);
+        const environmentalStress = (sin(frameCount / 1000) + 1) / 2;
+        
+        this.stress = lerp(this.stress,
+          (resourceStress * 0.4 + socialStress * 0.3 + environmentalStress * 0.3),
+          this.adaptationRate
+        );
+        
+        // Adapt behavior patterns based on success
+        if (frameCount % 100 === 0) {
+          const successRate = this.getSuccessRate();
+          this.behaviorPatterns.cooperative = lerp(
+            this.behaviorPatterns.cooperative,
+            successRate > 0.5 ? this.traits.cooperation : 1 - this.traits.cooperation,
+            this.adaptationRate
+          );
+          
+          this.behaviorPatterns.competitive = lerp(
+            this.behaviorPatterns.competitive,
+            this.stress > 0.7 ? this.traits.aggression : 1 - this.traits.aggression,
+            this.adaptationRate
+          );
+        }
+      }
+
+      getSuccessRate() {
+        let successCount = 0;
+        let totalInteractions = 0;
+        
+        this.socialMemory.forEach((memory, partnerId) => {
+          successCount += memory.successfulInteractions;
+          totalInteractions += memory.successfulInteractions + memory.failedInteractions;
+        });
+        
+        return totalInteractions > 0 ? successCount / totalInteractions : 0.5;
+      }
+
+      // Enhanced reproduction method
       reproduce() {
         const currentPop = nodes.length;
         const target = getPopulationTarget();
         
-        // Base reproduction check
         if (this.energy < this.reproductiveEnergy || 
             frameCount - this.lastReproduction < this.reproductiveCooldown) {
           return null;
         }
 
-        // Population pressure influence
         const popRatio = currentPop / target;
-        if (random() > 1.5 - popRatio) {  // Less likely to reproduce as population grows
+        if (random() > 1.5 - popRatio) {
           return null;
         }
 
-        // Create offspring with slightly mutated traits
         const offspring = new Node(nodes.length, this.cluster, this.supercluster);
         offspring.x = this.x + random(-20, 20);
         offspring.y = this.y + random(-20, 20);
+        offspring.generation = this.generation + 1;
         
-        // Inherit traits with mutation
+        // Inherit traits with mutation and innovation
         for (let trait in this.traits) {
-          offspring.traits[trait] = this.traits[trait] * random(0.9, 1.1);
+          const mutationRate = this.traits.innovation * 0.2;
+          const mutation = random(-mutationRate, mutationRate);
+          offspring.traits[trait] = constrain(
+            this.traits[trait] * (1 + mutation),
+            0.5,
+            1.5
+          );
         }
         
-        // Split energy and resources with offspring
-        this.energy *= 0.6;
+        // Inherit some behavioral patterns
+        offspring.behaviorPatterns = {
+          cooperative: lerp(this.behaviorPatterns.cooperative, random(0.3, 0.7), 0.3),
+          competitive: lerp(this.behaviorPatterns.competitive, random(0.3, 0.7), 0.3),
+          innovative: lerp(this.behaviorPatterns.innovative, random(0.3, 0.7), 0.3)
+        };
+        
+        // Split energy and resources
+        const splitRatio = 0.6;
+        this.energy *= splitRatio;
         offspring.energy = this.energy;
-        this.resources *= 0.6;
+        this.resources *= splitRatio;
         offspring.resources = this.resources;
+        
+        // Transfer some social memory
+        this.socialMemory.forEach((memory, partnerId) => {
+          if (random() < 0.3) { // 30% chance to inherit each relationship memory
+            offspring.socialMemory.set(partnerId, {
+              ...memory,
+              strength: memory.strength * 0.5 // Weaker inherited relationships
+            });
+          }
+        });
         
         this.lastReproduction = frameCount;
         return offspring;
+      }
+
+      // Add to memory system
+      updateSocialMemory(partner, success) {
+        if (!this.socialMemory.has(partner.id)) {
+          this.socialMemory.set(partner.id, {
+            successfulInteractions: 0,
+            failedInteractions: 0,
+            lastInteraction: frameCount,
+            strength: 0.5
+          });
+        }
+        
+        const memory = this.socialMemory.get(partner.id);
+        if (success) {
+          memory.successfulInteractions++;
+        } else {
+          memory.failedInteractions++;
+        }
+        
+        memory.lastInteraction = frameCount;
+        memory.strength = lerp(memory.strength, 
+          success ? 1 : 0,
+          0.1
+        );
+        
+        // Update preferred partners list
+        if (memory.strength > 0.7) {
+          this.preferredPartners.add(partner.id);
+        } else if (memory.strength < 0.3) {
+          this.preferredPartners.delete(partner.id);
+          this.rivalries.add(partner.id);
+        }
       }
     }
 
@@ -275,21 +628,70 @@
         this.shouldGlow = random() < 0.05;
         this.shouldRender = type === 'intra' || random() < 0.2;
         this.id = `${Math.min(source.id, target.id)}-${Math.max(source.id, target.id)}`;
+        
+        // New properties for resource flow
+        this.resourceFlow = 0;
+        this.resourceCapacity = random(0.1, 0.3);
+        this.flowEfficiency = random(0.8, 1.2);
+        
+        // Relationship memory
+        this.successfulInteractions = 0;
+        this.failedInteractions = 0;
+        this.trust = 0.5;
+        this.lastInteraction = millis();
+        
+        // Dynamic properties
+        this.stability = random(0.7, 1.0);
+        this.adaptability = random(0.8, 1.2);
       }
 
       getColor() {
-        const activeColor = color(170, 170, 190, 180);
-        const dormantColor = color(190, 170, 170, 180);
+        const baseColor = this.type === 'intra' ? 
+          color(170, 170, 190, 180) :
+          this.type === 'inter' ?
+          color(190, 170, 170, 180) :
+          color(170, 190, 170, 180);
         
-        const sourceActive = this.source.state === 'active' || this.source.state === 'transitioning';
-        const targetActive = this.target.state === 'active' || this.target.state === 'transitioning';
+        // Modify color based on trust and resource flow
+        const trustColor = lerpColor(
+          color(190, 170, 170, 180),
+          color(170, 190, 170, 180),
+          this.trust
+        );
         
-        if (sourceActive && targetActive) {
-          return activeColor;
-        } else if (!sourceActive && !targetActive) {
-          return dormantColor;
-        } else {
-          return color(180, 170, 180, 180);
+        // Flow intensity affects brightness
+        const flowIntensity = abs(this.resourceFlow) / this.resourceCapacity;
+        const finalColor = lerpColor(
+          baseColor,
+          trustColor,
+          constrain(flowIntensity * 2, 0, 1)
+        );
+        
+        return finalColor;
+      }
+      
+      updateRelationship() {
+        // Age-based trust decay
+        const timeSinceLastInteraction = (millis() - this.lastInteraction) / 1000;
+        this.trust *= pow(0.999, timeSinceLastInteraction);
+        
+        // Success/failure ratio affects trust
+        const totalInteractions = this.successfulInteractions + this.failedInteractions;
+        if (totalInteractions > 0) {
+          const successRatio = this.successfulInteractions / totalInteractions;
+          this.trust = lerp(this.trust, successRatio, 0.1);
+        }
+        
+        // Update stability based on interaction history
+        this.stability = lerp(this.stability, 
+          0.5 + (this.trust * 0.5), 
+          this.adaptability * 0.1
+        );
+        
+        // Clear old interaction counts periodically
+        if (frameCount % 1000 === 0) {
+          this.successfulInteractions *= 0.5;
+          this.failedInteractions *= 0.5;
         }
       }
     }
@@ -311,16 +713,19 @@
       const centerX = width / 2;
       const centerY = height / 2;
       
-      for (let s = 0; s < NUM_SUPERCLUSTERS; s++) {
+      for (let s = 0; s < INITIAL_CLUSTERS; s++) {
         // Position superclusters in a loose arrangement around the center
-        const superAngle = (s * TWO_PI / NUM_SUPERCLUSTERS) + random(-0.3, 0.3);
+        const superAngle = (s * TWO_PI / INITIAL_CLUSTERS) + random(-0.3, 0.3);
         const superRadius = min(width, height) * random(0.3, 0.4); // Larger initial radius
         const superX = centerX + cos(superAngle) * superRadius;
         const superY = centerY + sin(superAngle) * superRadius;
         
-        for (let c = 0; c < CLUSTERS_PER_SUPERCLUSTER; c++) {
+        // Determine number of clusters for this supercluster using gaussian distribution
+        const numClusters = constrain(round(gaussianRandom(MEAN_CLUSTERS, CLUSTER_STD_DEV)), MIN_CLUSTERS, MAX_CLUSTERS);
+        
+        for (let c = 0; c < numClusters; c++) {
           // Create spread out cluster positions
-          const clusterAngle = superAngle + (c * TWO_PI / CLUSTERS_PER_SUPERCLUSTER) + random(-0.4, 0.4);
+          const clusterAngle = superAngle + (c * TWO_PI / numClusters) + random(-0.4, 0.4);
           const clusterRadius = min(width, height) * random(0.15, 0.25); // Larger cluster radius
           const clusterX = superX + cos(clusterAngle) * clusterRadius;
           const clusterY = superY + sin(clusterAngle) * clusterRadius;
@@ -355,6 +760,9 @@
           }
         }
       }
+
+      // Calculate initial population after all nodes are created
+      INITIAL_POPULATION = nodes.length;
       
       // Create initial edges
       updateEdges();
@@ -377,11 +785,23 @@
       globalInteractionTimer++;
       const isGlobalInteractionFrame = globalInteractionTimer % 5 === 0;
       
+      // Reset connection counts
+      for (let node of nodes) {
+        node.currentConnections = 0;
+      }
+
+      // First pass: normal edge creation
       for (let node of nodes) {
         const nearbyNodes = getNearbyNodes(node, LOCAL_RADIUS, isGlobalInteractionFrame);
         
         for (let other of nearbyNodes) {
           if (node.id < other.id) {
+            // Check max connections limit with more flexibility
+            if (node.currentConnections >= node.maxConnections * 1.5 || 
+                other.currentConnections >= other.maxConnections * 1.5) {
+              continue;
+            }
+            
             let probability;
             let type;
             
@@ -395,6 +815,11 @@
             } else {
               probability = BASE_INTER_SUPER_DENSITY;
               type = 'super';
+            }
+            
+            // Increase probability for nodes with no connections
+            if (node.currentConnections === 0 || other.currentConnections === 0) {
+              probability *= 2;
             }
             
             const traitSimilarity = getTraitSimilarity(node, other);
@@ -427,11 +852,50 @@
               if (existingEdge) {
                 existingEdge.age++;
                 newEdges.push(existingEdge);
+                node.currentConnections++;
+                other.currentConnections++;
               } else {
                 const newEdge = new Edge(node, other, type);
                 edgeMap.set(edgeId, newEdge);
                 newEdges.push(newEdge);
+                node.currentConnections++;
+                other.currentConnections++;
               }
+            }
+          }
+        }
+      }
+
+      // Second pass: ensure isolated nodes get at least one connection
+      for (let node of nodes) {
+        if (node.currentConnections === 0) {
+          const nearbyNodes = getNearbyNodes(node, LOCAL_RADIUS * 1.5, true);
+          let bestCandidate = null;
+          let bestScore = -1;
+
+          for (let other of nearbyNodes) {
+            if (other !== node) {
+              const score = (1 / (1 + dist(node.x, node.y, other.x, other.y))) * 
+                           (1 + getTraitSimilarity(node, other)) *
+                           (other.currentConnections < other.maxConnections ? 2 : 1);
+              
+              if (score > bestScore) {
+                bestScore = score;
+                bestCandidate = other;
+              }
+            }
+          }
+
+          if (bestCandidate) {
+            const edgeId = `${Math.min(node.id, bestCandidate.id)}-${Math.max(node.id, bestCandidate.id)}`;
+            if (!edgeMap.has(edgeId)) {
+              const type = node.cluster === bestCandidate.cluster ? 'intra' : 
+                          node.supercluster === bestCandidate.supercluster ? 'inter' : 'super';
+              const newEdge = new Edge(node, bestCandidate, type);
+              edgeMap.set(edgeId, newEdge);
+              newEdges.push(newEdge);
+              node.currentConnections++;
+              bestCandidate.currentConnections++;
             }
           }
         }
@@ -538,8 +1002,8 @@
         
         const coloredPixelOnTop = node.energy > 0.5;
         
-        const coloredX = x + (cornerOffset.x * pixelSize * 0.4);
-        const coloredY = y + (cornerOffset.y * pixelSize * 0.4);
+        const coloredX = x + (cornerOffset.x * pixelSize * 0.3);
+        const coloredY = y + (cornerOffset.y * pixelSize * 0.3);
         
         if (!coloredPixelOnTop) {
           switch(node.state) {
@@ -588,6 +1052,7 @@
       
       updateSpatialGrid();
       
+      // Handle edge-based forces
       for (let edge of edges) {
         const dx = edge.target.x - edge.source.x;
         const dy = edge.target.y - edge.source.y;
@@ -597,9 +1062,11 @@
           const traitSimilarity = getTraitSimilarity(edge.source, edge.target);
           const similarityFactor = 1 - (traitSimilarity * TRAIT_SIMILARITY_WEIGHT);
           
-          const springLength = params.springLength[edge.type] * 
-                             similarityFactor * 
-                             (1 + Math.sin(edge.source.energy * Math.PI) * 0.2);
+          const springLength = Math.max(
+            params.springLength[edge.type] * similarityFactor * 
+            (1 + Math.sin(edge.source.energy * Math.PI) * 0.2),
+            MIN_NODE_DISTANCE * 1.2 // Ensure connected nodes maintain minimum distance
+          );
           
           const springStrength = params.springStrength[edge.type] * 
                                (1 + traitSimilarity * TRAIT_SIMILARITY_WEIGHT) * 
@@ -624,19 +1091,42 @@
         }
       }
       
+      // Handle magnetic and spatial forces
       for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i];
         const vIndex = i * 2;
         const nearbyNodes = getNearbyNodes(node, LOCAL_RADIUS, random() < 0.1);
+        
+        // Add gentle counter-clockwise rotation around canvas center
+        const dx = node.x - width/2;
+        const dy = node.y - height/2;
+        const distFromCenter = Math.sqrt(dx * dx + dy * dy);
+        if (distFromCenter > 0) {
+          // Clockwise rotational force
+          const rotationSpeed = 0.02;
+          const rotationalForce = distFromCenter * rotationSpeed;
+          velocities[vIndex] += (-dy / distFromCenter) * rotationalForce;
+          velocities[vIndex + 1] += (dx / distFromCenter) * rotationalForce;
+        }
         
         for (let other of nearbyNodes) {
           if (node !== other) {
             const dx = other.x - node.x;
             const dy = other.y - node.y;
             const distSq = dx * dx + dy * dy;
+            const distance = Math.sqrt(distSq);
             
-            if (distSq > 0) {
-              let repulsion = params.repulsionStrength;
+            if (distance > 0) {
+              // Stronger base repulsion force with increased minimum distance
+              const minDistance = MIN_NODE_DISTANCE;
+              const smoothedDistance = Math.max(distance, minDistance * 0.5);
+              let repulsion = params.repulsionStrength * 1.5; // Increased base repulsion
+              
+              // Much stronger exponential repulsion when too close
+              if (distance < minDistance) {
+                repulsion *= Math.exp((minDistance - distance) * 0.4); // Increased exponential factor
+              }
+              
               const traitSimilarity = getTraitSimilarity(node, other);
               repulsion *= (1 - traitSimilarity * TRAIT_SIMILARITY_WEIGHT);
               
@@ -644,24 +1134,54 @@
                 repulsion *= 1.2;
               }
               
-              repulsion *= (1 + random(-0.1, 0.1));
-              const force = repulsion / distSq;
+              // Personal space force with smooth transition
+              if (distance < node.personalSpace) {
+                const spaceRatio = distance / node.personalSpace;
+                repulsion *= map(spaceRatio, 0, 1, 4, 1, true); // Increased personal space multiplier
+              }
               
-              velocities[vIndex] -= (force * dx) * 0.5;
-              velocities[vIndex + 1] -= (force * dy) * 0.5;
+              // Magnetic interaction with distance-based dampening
+              if (distance < node.socialRange) {
+                const socialRatio = distance / node.socialRange;
+                const magneticEffect = (node.magneticPolarity * other.magneticPolarity) * 
+                                    (node.magneticStrength * other.magneticStrength) *
+                                    (1 - Math.pow(socialRatio, 1.5)); // Reduced power for stronger effect at medium distances
+                                    
+                // Limit magnetic attraction when nodes are close
+                const minMagneticDistance = node.personalSpace * 0.8; // Slightly increased minimum magnetic distance
+                if (distance < minMagneticDistance) {
+                  const dampening = Math.pow(distance / minMagneticDistance, 1.5); // Smoother dampening
+                  repulsion *= (1 - magneticEffect * 0.4 * dampening); // Increased magnetic effect
+                } else {
+                  repulsion *= (1 - magneticEffect * 0.4); // Increased magnetic effect
+                }
+              }
+              
+              // Add small random variation to prevent perfect alignments
+              repulsion *= (1 + random(-0.05, 0.05));
+              
+              // Calculate force with smoothed distance
+              const force = repulsion / (smoothedDistance * smoothedDistance);
+              const normalizedDx = dx / distance;
+              const normalizedDy = dy / distance;
+              
+              velocities[vIndex] -= (force * normalizedDx) * 0.7; // Slightly increased force scaling
+              velocities[vIndex + 1] -= (force * normalizedDy) * 0.7;
             }
           }
         }
         
+        // Random movement with personality influence and smoothing
         if (random() < 0.1) {
-          const randomForce = random(0.5, 2);
+          const randomForce = random(0.3, 1.5) * node.magneticStrength; // Reduced range for smoother movement
           const randomAngle = random(TWO_PI);
           velocities[vIndex] += Math.cos(randomAngle) * randomForce;
           velocities[vIndex + 1] += Math.sin(randomAngle) * randomForce;
         }
       }
       
-      const damping = 0.02;
+      // Adjust damping for smoother overall movement
+      const damping = 0.015; // Slightly reduced for smoother motion
       const margin = 50;
       const boundaryForce = 0.05;
       
@@ -669,13 +1189,39 @@
         const node = nodes[i];
         const vIndex = i * 2;
         
+        // Apply velocity with maximum speed limit
+        const speed = Math.sqrt(
+          velocities[vIndex] * velocities[vIndex] + 
+          velocities[vIndex + 1] * velocities[vIndex + 1]
+        );
+        const maxSpeed = 5;
+        
+        if (speed > maxSpeed) {
+          const scale = maxSpeed / speed;
+          velocities[vIndex] *= scale;
+          velocities[vIndex + 1] *= scale;
+        }
+        
         node.x += velocities[vIndex] * damping;
         node.y += velocities[vIndex + 1] * damping;
         
-        if (node.x < margin) velocities[vIndex] += (margin - node.x) * boundaryForce;
-        if (node.x > width - margin) velocities[vIndex] -= (node.x - (width - margin)) * boundaryForce;
-        if (node.y < margin) velocities[vIndex + 1] += (margin - node.y) * boundaryForce;
-        if (node.y > height - margin) velocities[vIndex + 1] -= (node.y - (height - margin)) * boundaryForce;
+        // Smoother boundary forces
+        if (node.x < margin) {
+          const boundaryDist = margin - node.x;
+          velocities[vIndex] += boundaryDist * boundaryForce * (1 - Math.exp(-boundaryDist * 0.1));
+        }
+        if (node.x > width - margin) {
+          const boundaryDist = node.x - (width - margin);
+          velocities[vIndex] -= boundaryDist * boundaryForce * (1 - Math.exp(-boundaryDist * 0.1));
+        }
+        if (node.y < margin) {
+          const boundaryDist = margin - node.y;
+          velocities[vIndex + 1] += boundaryDist * boundaryForce * (1 - Math.exp(-boundaryDist * 0.1));
+        }
+        if (node.y > height - margin) {
+          const boundaryDist = node.y - (height - margin);
+          velocities[vIndex + 1] -= boundaryDist * boundaryForce * (1 - Math.exp(-boundaryDist * 0.1));
+        }
       }
     }
 
@@ -752,6 +1298,73 @@
       // Add new nodes
       nodes.push(...newNodes);
     }
+
+    function clusterMaintenance() {
+      // Spatial partitioning for clusters
+      const clusterGrid = new Map();
+      
+      // Populate grid
+      clusters.forEach(c => {
+        const key = `${floor(c.position.x/500)}|${floor(c.position.y/500)}`;
+        if (!clusterGrid.has(key)) clusterGrid.set(key, []);
+        clusterGrid.get(key).push(c);
+      });
+
+      // Check neighbors in grid cells
+      clusterGrid.forEach((cellClusters, key) => {
+        for (let c1 of cellClusters) {
+          for (let c2 of cellClusters) {
+            if (c1 !== c2 && shouldMerge(c1, c2)) {
+              mergeClusters(c1, c2);
+            }
+          }
+        }
+      });
+    }
+
+    function shouldMerge(c1, c2) {
+      const dist = p5.Vector.dist(c1.position, c2.position);
+      const traitDiff = Object.keys(c1.traits).reduce((sum, t) => 
+        sum + abs(c1.traits[t] - c2.traits[t]), 0);
+      
+      return dist < 300 && traitDiff < 0.5;
+    }
+
+    class SuperclusterManager {
+      constructor() {
+        this.parent = new Map();
+      }
+      
+      findRoot(cluster) {
+        while (this.parent.get(cluster) !== cluster) {
+          cluster = this.parent.get(cluster);
+        }
+        return cluster;
+      }
+
+      union(c1, c2) {
+        const root1 = this.findRoot(c1);
+        const root2 = this.findRoot(c2);
+        this.parent.set(root2, root1);
+      }
+
+      getSuperclusters() {
+        const groups = new Map();
+        clusters.forEach(c => {
+          const root = this.findRoot(c);
+          if (!groups.has(root)) groups.set(root, []);
+          groups.get(root).push(c);
+        });
+        return groups;
+      }
+    }
+
+    const superclusterMetrics = {
+      formationRate: 0,
+      averageLifespan: 0,
+      sizeDistribution: [],
+      traitDivergence: 0
+    };
   </script>
 </body>
 </html>
